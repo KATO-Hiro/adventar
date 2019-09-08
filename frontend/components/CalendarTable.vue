@@ -49,8 +49,8 @@
             <span class="day">{{ cell.day }}</span>
             <div v-if="cell.entry">
               <div class="entryUser">
-                <UserIcon :user="cell.entry.owner" size="50" />
-                <div>{{ cell.entry.owner.name }}</div>
+                <UserIcon :user="cell.entry.owner" size="24" />
+                <div class="userName">{{ cell.entry.owner.name }}</div>
               </div>
               <span
                 class="editBtn"
@@ -80,14 +80,56 @@
 </template>
 
 <script lang="ts">
-import { Component, Vue } from "nuxt-property-decorator";
+import { Component, Vue, Prop } from "nuxt-property-decorator";
 import UserIcon from "~/components/UserIcon.vue";
+import { Calendar, Entry, User } from "~/types/adventar";
+import dayjs from "dayjs";
 
 @Component({
   components: { UserIcon }
 })
 export default class extends Vue {
+  @Prop() readonly calendar: Calendar;
+  @Prop() readonly currentUser: User;
+  @Prop() readonly onCreateEntry: (day: number) => Promise<void>;
+  @Prop() readonly onUpdateEntry: (
+    entryId: number,
+    { comment, url }: { comment: string; url: string }
+  ) => Promise<void>;
+  @Prop() readonly onDleteEntry: (entryId: number) => Promise<void>;
+
   displayedPopupCellDay: number | null;
+
+  get rows() {
+    const year = this.calendar.year;
+    const endDay = dayjs(new Date(year, 11, 25));
+    let currentDay = dayjs(new Date(year, 11, 1)).startOf("week");
+
+    const entryMapByDay: { [key: number]: Entry } = {};
+    if (this.calendar !== null && this.calendar.entries !== undefined) {
+      this.calendar.entries.forEach(entry => {
+        if (entry.day) {
+          entryMapByDay[entry.day] = entry;
+        }
+      });
+    }
+
+    const rows: any[] = [];
+    while (currentDay <= endDay) {
+      const cells: any[] = [];
+      for (let i = 0; i < 7; i++) {
+        const day = currentDay.date();
+        const entry = entryMapByDay[day] || null;
+        const entryable = currentDay.month() === 11 && day <= 25;
+        const cell = { day, entry, entryable };
+        cells.push(cell);
+        currentDay = currentDay.add(1, "day");
+      }
+      rows.push(cells);
+    }
+
+    return rows;
+  }
 
   mounted() {
     document.addEventListener("click", this.handleClickDocument);
@@ -136,10 +178,7 @@ export default class extends Vue {
   }
 
   async handleClickCreateEntry(day): Promise<void> {
-    const calendarId = this.calendar!.id;
-    const token = await getToken();
-    await createEntry({ calendarId, day, token });
-    await this.refetchCalendar();
+    await this.onCreateEntry(day);
     this.displayedPopupCellDay = day;
   }
 
@@ -149,20 +188,14 @@ export default class extends Vue {
 
   async handleClickDeleteEntry(entry: Entry): Promise<void> {
     if (!window.confirm("登録をキャンセルします")) return;
-    const token = await getToken();
-    await deleteEntry({ entryId: entry.id, token });
-    this.calendar = await getCalendar(this.calendar!.id);
+    this.onDleteEntry(entry.id);
     this.displayedPopupCellDay = null;
-    await this.refetchCalendar();
   }
 
   async handleSubmitPopupForm(entry: Entry): Promise<void> {
-    const entryId = entry.id;
     const comment = this.$refs[`inputComment${entry.day}`][0].value;
     const url = this.$refs[`inputUrl${entry.day}`][0].value;
-    const token = await getToken();
-    await updateEntry({ entryId, comment, url, token });
-    await this.refetchCalendar();
+    this.onUpdateEntry(entry.id, { comment, url });
     this.displayedPopupCellDay = null;
   }
 }
@@ -181,9 +214,8 @@ thead th {
   background: #aaa;
   height: 50px;
   color: #fff;
-  text-align: left;
-  padding-left: 15px;
-  font-size: 15px;
+  text-align: center;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -200,40 +232,64 @@ td {
   background-color: #fff;
   vertical-align: top;
   position: relative;
+  overflow: hidden;
 }
 
 .inner {
   position: relative;
-  min-height: 140px;
 }
 
 .day {
-  position: absolute;
-  top: 12px;
-  left: 15px;
-  font-size: 24px;
+  font-size: 16px;
+  padding: 3px;
   font-weight: bold;
   color: #aaa;
+
+  td:first-child & {
+    color: #e7998e;
+  }
+
+  td:last-child & {
+    color: #87a3d0;
+  }
 }
 
-td:first-child .day {
-  color: #e7998e;
+.entryUser {
+  text-align: center;
+  color: #666;
+  padding-top: 5px;
 }
 
-td:last-child .day {
-  color: #87a3d0;
+.entryUser .userName {
+  font-size: 10px;
+  line-height: 1.2;
+  margin: 5px 0;
+}
+
+.cancelBtn {
+  position: absolute;
+  top: 0px;
+  right: 2px;
+  color: #e5004f;
+  cursor: pointer;
+}
+
+.editBtn {
+  position: absolute;
+  top: 0px;
+  right: 2px;
+  color: #13b5b1;
+  cursor: pointer;
 }
 
 .entryForm {
-  padding-top: 60px;
   text-align: center;
+  margin: 5px 0 10px;
 }
 
 .entryForm button {
-  padding: 0 15px;
-  height: 32px;
-  line-height: 32px;
-  font-size: 15px;
+  padding: 5px 10px;
+  font-size: 11px;
   display: inline-block;
   border-radius: 5px;
   margin: 0;
@@ -254,34 +310,6 @@ td:last-child .day {
   background-image: linear-gradient(to bottom, #ef7266, #ef7266 50%, #e45541 50%, #e45541);
 }
 
-.entryUser {
-  text-align: center;
-  position: relative;
-  top: 50px;
-  color: #666;
-}
-
-.entryUser .userIcon {
-  width: 50px;
-  height: 50px;
-  border-radius: 50px;
-}
-
-.cancelBtn {
-  position: absolute;
-  top: 15px;
-  right: 10px;
-  color: #e5004f;
-  cursor: pointer;
-}
-
-.editBtn {
-  position: absolute;
-  top: 15px;
-  right: 10px;
-  color: #13b5b1;
-  cursor: pointer;
-}
 .popup {
   width: 350px;
   height: 130px;
